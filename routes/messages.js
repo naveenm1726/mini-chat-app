@@ -19,9 +19,9 @@ const {
 } = require('../database');
 
 // -------------------- GET ALL USERS (for new chat) --------------------
-router.get('/users', authenticate, (req, res) => {
+router.get('/users', authenticate, async (req, res) => {
   try {
-    const users = getAllUsersExcept.all(req.user.id);
+    const users = await getAllUsersExcept(req.user.id);
     res.json({ users });
   } catch (err) {
     console.error('Get users error:', err);
@@ -30,11 +30,11 @@ router.get('/users', authenticate, (req, res) => {
 });
 
 // -------------------- SEARCH USERS --------------------
-router.get('/users/search', authenticate, (req, res) => {
+router.get('/users/search', authenticate, async (req, res) => {
   try {
     const q = req.query.q?.trim();
     if (!q) return res.json({ users: [] });
-    const users = searchUsers.all(`%${q}%`, req.user.id);
+    const users = await searchUsers(q, req.user.id);
     res.json({ users });
   } catch (err) {
     console.error('Search error:', err);
@@ -43,10 +43,10 @@ router.get('/users/search', authenticate, (req, res) => {
 });
 
 // -------------------- GET RECENT CONVERSATIONS --------------------
-router.get('/conversations', authenticate, (req, res) => {
+router.get('/conversations', authenticate, async (req, res) => {
   try {
-    const conversations = getRecentConversations.all(req.user.id);
-    const unread = getUnreadCount.get(req.user.id);
+    const conversations = await getRecentConversations(req.user.id);
+    const unread = await getUnreadCount(req.user.id);
     res.json({ conversations, totalUnread: unread.count });
   } catch (err) {
     console.error('Conversations error:', err);
@@ -55,18 +55,18 @@ router.get('/conversations', authenticate, (req, res) => {
 });
 
 // -------------------- GET MESSAGES WITH A USER --------------------
-router.get('/messages/:userId', authenticate, (req, res) => {
+router.get('/messages/:userId', authenticate, async (req, res) => {
   try {
     const otherId = parseInt(req.params.userId);
     if (isNaN(otherId)) return res.status(400).json({ error: 'Invalid user ID' });
 
-    const otherUser = findUserById.get(otherId);
+    const otherUser = await findUserById(otherId);
     if (!otherUser) return res.status(404).json({ error: 'User not found' });
 
-    const messages = getConversation.all(req.user.id, otherId, otherId, req.user.id);
+    const messages = await getConversation(req.user.id, otherId);
 
     // Mark messages from the other user as read
-    markMessagesRead.run(otherId, req.user.id);
+    await markMessagesRead(otherId, req.user.id);
 
     res.json({ messages, otherUser });
   } catch (err) {
@@ -76,7 +76,7 @@ router.get('/messages/:userId', authenticate, (req, res) => {
 });
 
 // -------------------- SEND MESSAGE (REST fallback) --------------------
-router.post('/messages', authenticate, (req, res) => {
+router.post('/messages', authenticate, async (req, res) => {
   try {
     let { receiverId, text } = req.body;
     text = xss(text?.trim());
@@ -88,10 +88,10 @@ router.post('/messages', authenticate, (req, res) => {
       return res.status(400).json({ error: 'Message too long (max 2000 chars)' });
     }
 
-    const receiver = findUserById.get(receiverId);
+    const receiver = await findUserById(receiverId);
     if (!receiver) return res.status(404).json({ error: 'Receiver not found' });
 
-    const result = insertMessage.run(req.user.id, receiverId, text);
+    const result = await insertMessage(req.user.id, receiverId, text);
 
     res.status(201).json({
       message: {
@@ -110,11 +110,11 @@ router.post('/messages', authenticate, (req, res) => {
 });
 
 // -------------------- MARK MESSAGES AS READ --------------------
-router.put('/messages/read/:userId', authenticate, (req, res) => {
+router.put('/messages/read/:userId', authenticate, async (req, res) => {
   try {
     const otherId = parseInt(req.params.userId);
     if (isNaN(otherId)) return res.status(400).json({ error: 'Invalid user ID' });
-    markMessagesRead.run(otherId, req.user.id);
+    await markMessagesRead(otherId, req.user.id);
     res.json({ success: true });
   } catch (err) {
     console.error('Mark read error:', err);
@@ -123,9 +123,9 @@ router.put('/messages/read/:userId', authenticate, (req, res) => {
 });
 
 // -------------------- GET UNREAD COUNT --------------------
-router.get('/unread', authenticate, (req, res) => {
+router.get('/unread', authenticate, async (req, res) => {
   try {
-    const result = getUnreadCount.get(req.user.id);
+    const result = await getUnreadCount(req.user.id);
     res.json({ count: result.count });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });

@@ -1,62 +1,27 @@
 // ============================================================
-//  DATABASE LAYER — Lightweight JSON file-based storage
-//  No native dependencies needed — works everywhere!
+//  DATABASE LAYER — Supabase (PostgreSQL)
+//  Persistent cloud storage — data survives restarts!
 //  Tables: users, messages
 // ============================================================
 
-const fs = require('fs');
-const path = require('path');
+require('dotenv').config();
+const { createClient } = require('@supabase/supabase-js');
 
-const DB_FILE = path.join(__dirname, 'chat_data.json');
-
-// -------------------- DB Core --------------------
-class Database {
-  constructor(filePath) {
-    this.filePath = filePath;
-    this.data = { users: [], messages: [], nextUserId: 1, nextMsgId: 1 };
-    this.load();
-  }
-
-  load() {
-    try {
-      if (fs.existsSync(this.filePath)) {
-        const raw = fs.readFileSync(this.filePath, 'utf-8');
-        this.data = JSON.parse(raw);
-      }
-    } catch (err) {
-      console.error('DB load error, starting fresh:', err.message);
-    }
-  }
-
-  save() {
-    try {
-      fs.writeFileSync(this.filePath, JSON.stringify(this.data, null, 2), 'utf-8');
-    } catch (err) {
-      console.error('DB save error:', err.message);
-    }
-  }
-}
-
-const db = new Database(DB_FILE);
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_KEY
+);
 
 // -------------------- USER FUNCTIONS --------------------
 
-function createUser(username, email, password) {
-  const id = db.data.nextUserId++;
-  const user = {
-    id,
-    username,
-    email,
-    password,
-    avatar_url: null,
-    status: 'offline',
-    bio: '',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  };
-  db.data.users.push(user);
-  db.save();
-  return { lastInsertRowid: id };
+async function createUser(username, email, password) {
+  const { data, error } = await supabase
+    .from('users')
+    .insert({ username, email, password })
+    .select('id')
+    .single();
+  if (error) throw error;
+  return { lastInsertRowid: data.id };
 }
 
 function sanitizeUser(user) {
@@ -65,106 +30,137 @@ function sanitizeUser(user) {
   return safe;
 }
 
-function findUserByUsername(username) {
-  const user = db.data.users.find(u => u.username.toLowerCase() === username.toLowerCase());
-  return sanitizeUser(user);
+async function findUserByUsername(username) {
+  const { data } = await supabase
+    .from('users')
+    .select('*')
+    .ilike('username', username)
+    .single();
+  return sanitizeUser(data);
 }
 
-function findUserByEmail(email) {
-  const user = db.data.users.find(u => u.email.toLowerCase() === email.toLowerCase());
-  return sanitizeUser(user);
+async function findUserByEmail(email) {
+  const { data } = await supabase
+    .from('users')
+    .select('*')
+    .ilike('email', email)
+    .single();
+  return sanitizeUser(data);
 }
 
-function findUserById(id) {
-  const user = db.data.users.find(u => u.id === id);
-  return sanitizeUser(user);
+async function findUserById(id) {
+  const { data } = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', id)
+    .single();
+  return sanitizeUser(data);
 }
 
-function findUserWithPassword(username) {
-  return db.data.users.find(u => u.username.toLowerCase() === username.toLowerCase()) || null;
+async function findUserWithPassword(username) {
+  const { data } = await supabase
+    .from('users')
+    .select('*')
+    .ilike('username', username)
+    .single();
+  return data || null;
 }
 
-function findUserWithPasswordByEmail(email) {
-  return db.data.users.find(u => u.email.toLowerCase() === email.toLowerCase()) || null;
+async function findUserWithPasswordByEmail(email) {
+  const { data } = await supabase
+    .from('users')
+    .select('*')
+    .ilike('email', email)
+    .single();
+  return data || null;
 }
 
-function updateUserStatus(status, userId) {
-  const user = db.data.users.find(u => u.id === userId);
-  if (user) {
-    user.status = status;
-    user.updated_at = new Date().toISOString();
-    db.save();
-  }
+async function updateUserStatus(status, userId) {
+  await supabase
+    .from('users')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', userId);
 }
 
-function updateUserProfile(bio, avatar_url, userId) {
-  const user = db.data.users.find(u => u.id === userId);
-  if (user) {
-    user.bio = bio;
-    user.avatar_url = avatar_url;
-    user.updated_at = new Date().toISOString();
-    db.save();
-  }
+async function updateUserProfile(bio, avatar_url, userId) {
+  await supabase
+    .from('users')
+    .update({ bio, avatar_url, updated_at: new Date().toISOString() })
+    .eq('id', userId);
 }
 
-function searchUsers(query, excludeId) {
-  const q = query.replace(/%/g, '').toLowerCase();
-  return db.data.users
-    .filter(u => u.id !== excludeId && u.username.toLowerCase().includes(q))
-    .slice(0, 20)
-    .map(sanitizeUser);
+async function searchUsers(query, excludeId) {
+  const q = query.replace(/%/g, '');
+  const { data } = await supabase
+    .from('users')
+    .select('id, username, email, avatar_url, status, bio, created_at, updated_at')
+    .neq('id', excludeId)
+    .ilike('username', `%${q}%`)
+    .limit(20);
+  return data || [];
 }
 
-function getAllUsersExcept(excludeId) {
-  return db.data.users
-    .filter(u => u.id !== excludeId)
-    .sort((a, b) => a.username.localeCompare(b.username))
-    .map(u => ({ id: u.id, username: u.username, avatar_url: u.avatar_url, status: u.status, bio: u.bio }));
+async function getAllUsersExcept(excludeId) {
+  const { data } = await supabase
+    .from('users')
+    .select('id, username, avatar_url, status, bio')
+    .neq('id', excludeId)
+    .order('username');
+  return data || [];
 }
 
 // -------------------- MESSAGE FUNCTIONS --------------------
 
-function insertMessage(senderId, receiverId, text) {
-  const id = db.data.nextMsgId++;
-  const msg = {
-    id,
-    sender_id: senderId,
-    receiver_id: receiverId,
-    text,
-    read: 0,
-    created_at: new Date().toISOString()
-  };
-  db.data.messages.push(msg);
-  db.save();
-  return { lastInsertRowid: id };
+async function insertMessage(senderId, receiverId, text) {
+  const { data, error } = await supabase
+    .from('messages')
+    .insert({ sender_id: senderId, receiver_id: receiverId, text })
+    .select('id')
+    .single();
+  if (error) throw error;
+  return { lastInsertRowid: data.id };
 }
 
-function getConversation(userId1, userId2) {
-  const messages = db.data.messages
-    .filter(m =>
-      (m.sender_id === userId1 && m.receiver_id === userId2) ||
-      (m.sender_id === userId2 && m.receiver_id === userId1)
+async function getConversation(userId1, userId2) {
+  const { data: messages } = await supabase
+    .from('messages')
+    .select('*')
+    .or(
+      `and(sender_id.eq.${userId1},receiver_id.eq.${userId2}),and(sender_id.eq.${userId2},receiver_id.eq.${userId1})`
     )
-    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-    .slice(-200);
+    .order('created_at', { ascending: true })
+    .limit(200);
 
-  return messages.map(m => {
-    const sender = db.data.users.find(u => u.id === m.sender_id);
-    const receiver = db.data.users.find(u => u.id === m.receiver_id);
-    return {
-      ...m,
-      sender_name: sender?.username || 'Unknown',
-      sender_avatar: sender?.avatar_url || null,
-      receiver_name: receiver?.username || 'Unknown',
-      receiver_avatar: receiver?.avatar_url || null
-    };
-  });
+  if (!messages || messages.length === 0) return [];
+
+  // Get unique user IDs to fetch names
+  const userIds = [...new Set(messages.flatMap(m => [m.sender_id, m.receiver_id]))];
+  const { data: users } = await supabase
+    .from('users')
+    .select('id, username, avatar_url')
+    .in('id', userIds);
+
+  const userMap = {};
+  (users || []).forEach(u => { userMap[u.id] = u; });
+
+  return messages.map(m => ({
+    ...m,
+    sender_name: userMap[m.sender_id]?.username || 'Unknown',
+    sender_avatar: userMap[m.sender_id]?.avatar_url || null,
+    receiver_name: userMap[m.receiver_id]?.username || 'Unknown',
+    receiver_avatar: userMap[m.receiver_id]?.avatar_url || null
+  }));
 }
 
-function getRecentConversations(userId) {
-  const userMessages = db.data.messages.filter(
-    m => m.sender_id === userId || m.receiver_id === userId
-  );
+async function getRecentConversations(userId) {
+  // Get all messages involving this user
+  const { data: userMessages } = await supabase
+    .from('messages')
+    .select('*')
+    .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
+    .order('created_at', { ascending: false });
+
+  if (!userMessages || userMessages.length === 0) return [];
 
   const otherUserIds = new Set();
   userMessages.forEach(m => {
@@ -172,18 +168,27 @@ function getRecentConversations(userId) {
     else otherUserIds.add(m.sender_id);
   });
 
+  // Fetch other users
+  const { data: otherUsers } = await supabase
+    .from('users')
+    .select('id, username, avatar_url, status')
+    .in('id', [...otherUserIds]);
+
+  const userMap = {};
+  (otherUsers || []).forEach(u => { userMap[u.id] = u; });
+
   const conversations = [];
   otherUserIds.forEach(otherId => {
-    const otherUser = db.data.users.find(u => u.id === otherId);
+    const otherUser = userMap[otherId];
     if (!otherUser) return;
 
-    const convoMessages = db.data.messages.filter(
+    const convoMessages = userMessages.filter(
       m => (m.sender_id === userId && m.receiver_id === otherId) ||
            (m.sender_id === otherId && m.receiver_id === userId)
-    ).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    );
 
     const lastMsg = convoMessages[0];
-    const unreadCount = db.data.messages.filter(
+    const unreadCount = userMessages.filter(
       m => m.sender_id === otherId && m.receiver_id === userId && m.read === 0
     ).length;
 
@@ -202,53 +207,56 @@ function getRecentConversations(userId) {
   return conversations;
 }
 
-function markMessagesRead(senderId, receiverId) {
-  let changed = false;
-  db.data.messages.forEach(m => {
-    if (m.sender_id === senderId && m.receiver_id === receiverId && m.read === 0) {
-      m.read = 1;
-      changed = true;
-    }
-  });
-  if (changed) db.save();
+async function markMessagesRead(senderId, receiverId) {
+  await supabase
+    .from('messages')
+    .update({ read: 1 })
+    .eq('sender_id', senderId)
+    .eq('receiver_id', receiverId)
+    .eq('read', 0);
 }
 
-function getUnreadCount(userId) {
-  const count = db.data.messages.filter(m => m.receiver_id === userId && m.read === 0).length;
-  return { count };
+async function getUnreadCount(userId) {
+  const { count } = await supabase
+    .from('messages')
+    .select('*', { count: 'exact', head: true })
+    .eq('receiver_id', userId)
+    .eq('read', 0);
+  return { count: count || 0 };
 }
 
 // -------------------- AUTO-PURGE OLD MESSAGES --------------------
-function purgeOldMessages(days = 30) {
+async function purgeOldMessages(days = 30) {
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-  const before = db.data.messages.length;
-  db.data.messages = db.data.messages.filter(m => m.created_at >= cutoff);
-  const deleted = before - db.data.messages.length;
-  if (deleted > 0) {
-    db.save();
-    console.log(`🗑️  Purged ${deleted} messages older than ${days} days`);
+  const { count } = await supabase
+    .from('messages')
+    .delete()
+    .lt('created_at', cutoff)
+    .select('*', { count: 'exact', head: true });
+  if (count && count > 0) {
+    console.log(`🗑️  Purged ${count} messages older than ${days} days`);
   }
-  return deleted;
+  return count || 0;
 }
 
 // -------------------- EXPORTS --------------------
-// Wrapped to mimic prepared-statement .get()/.all()/.run() API
+// All functions are now async — callers must await them
 module.exports = {
-  db,
-  createUser:                 { run: (username, email, password) => createUser(username, email, password) },
-  findUserByUsername:         { get: (username) => findUserByUsername(username) },
-  findUserByEmail:            { get: (email) => findUserByEmail(email) },
-  findUserById:               { get: (id) => findUserById(id) },
-  findUserWithPassword:       { get: (username) => findUserWithPassword(username) },
-  findUserWithPasswordByEmail:{ get: (email) => findUserWithPasswordByEmail(email) },
-  updateUserStatus:           { run: (status, userId) => updateUserStatus(status, userId) },
-  updateUserProfile:          { run: (bio, avatar_url, userId) => updateUserProfile(bio, avatar_url, userId) },
-  searchUsers:                { all: (query, excludeId) => searchUsers(query, excludeId) },
-  getAllUsersExcept:           { all: (excludeId) => getAllUsersExcept(excludeId) },
-  insertMessage:              { run: (senderId, receiverId, text) => insertMessage(senderId, receiverId, text) },
-  getConversation:            { all: (u1, u2, _u2, _u1) => getConversation(u1, u2) },
-  getRecentConversations:     { all: (userId) => getRecentConversations(userId) },
-  markMessagesRead:           { run: (senderId, receiverId) => markMessagesRead(senderId, receiverId) },
-  getUnreadCount:             { get: (userId) => getUnreadCount(userId) },
+  supabase,
+  createUser,
+  findUserByUsername,
+  findUserByEmail,
+  findUserById,
+  findUserWithPassword,
+  findUserWithPasswordByEmail,
+  updateUserStatus,
+  updateUserProfile,
+  searchUsers,
+  getAllUsersExcept,
+  insertMessage,
+  getConversation,
+  getRecentConversations,
+  markMessagesRead,
+  getUnreadCount,
   purgeOldMessages
 };

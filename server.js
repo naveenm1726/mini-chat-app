@@ -83,7 +83,7 @@ io.on('connection', (socket) => {
 
   // Mark online
   onlineUsers.set(userId, socket.id);
-  updateUserStatus.run('online', userId);
+  updateUserStatus('online', userId);
 
   // Broadcast online status
   io.emit('user_status', { userId, status: 'online' });
@@ -92,7 +92,7 @@ io.on('connection', (socket) => {
   socket.emit('online_users', Array.from(onlineUsers.keys()));
 
   // ---- SEND MESSAGE (real-time) ----
-  socket.on('send_message', (data) => {
+  socket.on('send_message', async (data) => {
     try {
       const text = xss(data.text?.trim());
       const receiverId = parseInt(data.receiverId);
@@ -100,7 +100,7 @@ io.on('connection', (socket) => {
       if (!text || !receiverId || text.length > 2000) return;
 
       // Save to DB
-      const result = insertMessage.run(userId, receiverId, text);
+      const result = await insertMessage(userId, receiverId, text);
       const message = {
         id: result.lastInsertRowid,
         sender_id: userId,
@@ -155,7 +155,7 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log(`💤 ${username} disconnected`);
     onlineUsers.delete(userId);
-    updateUserStatus.run('offline', userId);
+    updateUserStatus('offline', userId);
     io.emit('user_status', { userId, status: 'offline' });
   });
 });

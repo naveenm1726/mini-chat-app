@@ -46,18 +46,18 @@ router.post('/register', async (req, res) => {
     }
 
     // Check duplicates
-    if (findUserByUsername.get(username)) {
+    if (await findUserByUsername(username)) {
       return res.status(409).json({ error: 'Username already taken' });
     }
-    if (findUserByEmail.get(email)) {
+    if (await findUserByEmail(email)) {
       return res.status(409).json({ error: 'Email already registered' });
     }
 
     // Hash & store
     const hashed = await bcrypt.hash(password, 12);
-    const result = createUser.run(username, email, hashed);
+    const result = await createUser(username, email, hashed);
 
-    const user = findUserById.get(result.lastInsertRowid);
+    const user = await findUserById(result.lastInsertRowid);
     const token = generateToken(user);
 
     res.cookie('token', token, {
@@ -89,8 +89,8 @@ router.post('/login', async (req, res) => {
     }
 
     // Support login by username or email
-    let user = findUserWithPassword.get(login);
-    if (!user) user = findUserWithPasswordByEmail.get(login.toLowerCase());
+    let user = await findUserWithPassword(login);
+    if (!user) user = await findUserWithPasswordByEmail(login.toLowerCase());
 
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -128,21 +128,21 @@ router.post('/logout', (req, res) => {
 });
 
 // -------------------- GET CURRENT USER --------------------
-router.get('/me', authenticate, (req, res) => {
-  const user = findUserById.get(req.user.id);
+router.get('/me', authenticate, async (req, res) => {
+  const user = await findUserById(req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({ user });
 });
 
 // -------------------- UPDATE PROFILE --------------------
-router.put('/profile', authenticate, (req, res) => {
+router.put('/profile', authenticate, async (req, res) => {
   try {
     let { bio, avatar_url } = req.body;
     bio = xss(bio?.trim() || '');
     avatar_url = xss(avatar_url?.trim() || '');
 
-    updateUserProfile.run(bio, avatar_url, req.user.id);
-    const user = findUserById.get(req.user.id);
+    await updateUserProfile(bio, avatar_url, req.user.id);
+    const user = await findUserById(req.user.id);
     res.json({ message: 'Profile updated', user });
   } catch (err) {
     console.error('Profile update error:', err);
