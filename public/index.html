@@ -212,7 +212,7 @@
             <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
             </svg>
-            <input type="text" id="search-users" placeholder="Search users..." class="search-input" />
+            <input type="text" id="search-users" placeholder="Search users or chats..." class="search-input" />
           </div>
         </div>
 
@@ -239,10 +239,20 @@
                 <polyline points="15 18 9 12 15 6"/>
               </svg>
             </button>
-            <span>All Users</span>
+            <span>Find by Username</span>
           </div>
-          <div id="all-users-items" class="conversation-items">
-            <!-- Filled by JS -->
+          <div class="sidebar-search" style="padding-top: 4px;">
+            <div class="search-wrapper">
+              <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input type="text" id="exact-username-input" placeholder="Enter exact username" class="search-input" />
+            </div>
+          </div>
+          <div id="username-search-result" class="conversation-items">
+            <div style="text-align:center; padding:40px 20px; color:var(--text-tertiary);">
+              <p style="font-size:0.88rem;">Search by exact username to start chat</p>
+            </div>
           </div>
         </div>
       </aside>
@@ -289,6 +299,11 @@
               </div>
             </div>
             <div class="chat-header-actions">
+              <button class="btn-icon" id="voice-call-btn" title="Voice call">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.9 12.9 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.9 12.9 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+                </svg>
+              </button>
               <button class="btn-icon" id="toggle-message-search" title="Search messages">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -322,6 +337,12 @@
           <!-- Message input -->
           <div class="chat-input-area">
             <div class="chat-input-wrapper">
+              <input type="file" id="media-input" class="hidden" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.zip,.rar,.xlsx,.ppt,.pptx" />
+              <button class="btn-icon btn-attach" id="attach-btn" title="Send file/media">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 1 1 4.95 4.95L9.41 17.41a1.5 1.5 0 0 1-2.12-2.12l8.49-8.48"/>
+                </svg>
+              </button>
               <button class="btn-icon btn-emoji" id="emoji-btn" title="Emoji">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <circle cx="12" cy="12" r="10"/>
@@ -390,15 +411,51 @@
       </div>
       <div class="modal-body">
         <div class="profile-avatar-section">
-          <div class="avatar avatar-lg" id="profile-avatar">
+          <div class="avatar avatar-lg profile-avatar-preview" id="profile-avatar">
+            <img id="profile-avatar-image" class="hidden" alt="Profile photo" />
             <span class="avatar-letter" id="profile-avatar-letter"></span>
           </div>
+        </div>
+        <div class="input-group">
+          <label for="profile-photo-input">Profile Photo</label>
+          <input id="profile-photo-input" type="file" accept="image/*" />
         </div>
         <div class="input-group">
           <label for="profile-bio">Bio</label>
           <textarea id="profile-bio" placeholder="Tell others about yourself..." rows="3" maxlength="200"></textarea>
         </div>
+
+        <div class="input-group">
+          <label for="current-password">Current Password</label>
+          <input id="current-password" type="password" placeholder="Current password" />
+        </div>
+        <div class="input-group">
+          <label for="new-password">New Password</label>
+          <input id="new-password" type="password" placeholder="New password" />
+        </div>
+        <div class="input-group">
+          <label for="confirm-password">Confirm New Password</label>
+          <input id="confirm-password" type="password" placeholder="Confirm new password" />
+        </div>
         <button class="btn btn-primary btn-full" id="save-profile-btn">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Voice call modal -->
+  <div class="modal hidden" id="voice-call-modal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content call-modal-content">
+      <div class="modal-header">
+        <h3 id="call-modal-title">Voice Call</h3>
+      </div>
+      <div class="modal-body">
+        <p id="call-modal-status" style="text-align:center; margin-bottom:16px; color:var(--text-secondary);"></p>
+        <div class="call-actions">
+          <button class="btn" id="call-accept-btn">Accept</button>
+          <button class="btn" id="call-decline-btn">Decline</button>
+          <button class="btn btn-primary" id="call-end-btn">End Call</button>
+        </div>
       </div>
     </div>
   </div>

@@ -31,6 +31,8 @@ const io     = new Server(server, {
   cors: { origin: '*', credentials: true }
 });
 
+const ATTACHMENT_PREFIX = '__ATTACHMENT__';
+
 const PORT = process.env.PORT || 3000;
 
 // -------------------- SECURITY MIDDLEWARE --------------------
@@ -105,10 +107,11 @@ io.on('connection', (socket) => {
   // ---- SEND MESSAGE (real-time) ----
   socket.on('send_message', async (data) => {
     try {
-      const text = xss(data.text?.trim());
+      const rawText = String(data.text || '').trim();
+      const text = rawText.startsWith(ATTACHMENT_PREFIX) ? rawText : xss(rawText);
       const receiverId = parseInt(data.receiverId);
 
-      if (!text || !receiverId || text.length > 2000) return;
+      if (!text || !receiverId || text.length > 8000) return;
 
       // Save to DB
       const result = await insertMessage(userId, receiverId, text);
@@ -135,11 +138,67 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ---- VOICE CALL SIGNALING ----
+  socket.on('call_offer', (data) => {
+    const receiverId = parseInt(data.receiverId);
+    const receiverSocket = onlineUsers.get(receiverId);
+    if (!receiverSocket) return;
+
+    io.to(receiverSocket).emit('incoming_call', {
+      callerId: userId,
+      callerName: username,
+      offer: data.offer
+    });
+  });
+
+  socket.on('call_answer', (data) => {
+    const receiverId = parseInt(data.receiverId);
+    const receiverSocket = onlineUsers.get(receiverId);
+    if (!receiverSocket) return;
+
+    io.to(receiverSocket).emit('call_answered', {
+      answer: data.answer,
+      answeredBy: userId
+    });
+  });
+
+  socket.on('call_reject', (data) => {
+    const receiverId = parseInt(data.receiverId);
+    const receiverSocket = onlineUsers.get(receiverId);
+    if (!receiverSocket) return;
+
+    io.to(receiverSocket).emit('call_rejected', {
+      rejectedBy: userId
+    });
+  });
+
+  socket.on('ice_candidate', (data) => {
+    const receiverId = parseInt(data.receiverId);
+    const receiverSocket = onlineUsers.get(receiverId);
+    if (!receiverSocket) return;
+
+    io.to(receiverSocket).emit('ice_candidate', {
+      candidate: data.candidate,
+      fromUserId: userId
+    });
+  });
+
+  socket.on('call_end', (data) => {
+    const receiverId = parseInt(data.receiverId);
+    const receiverSocket = onlineUsers.get(receiverId);
+    if (!receiverSocket) return;
+
+    io.to(receiverSocket).emit('call_ended', {
+      endedBy: userId
+    });
+  });
+
   // ---- EDIT MESSAGE ----
   socket.on('edit_message', async (data) => {
     try {
       const messageId = parseInt(data.messageId);
-      const text = xss(data.text?.trim());
+      const rawText = String(data.text || '').trim();
+      const text = rawText.startsWith(ATTACHMENT_PREFIX) ? rawText : xss(rawText);
 
       if (!messageId || !text || text.length > 2000) return;
 

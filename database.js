@@ -75,6 +75,15 @@ async function findUserWithPasswordByEmail(email) {
   return data || null;
 }
 
+async function findUserWithPasswordById(id) {
+  const { data } = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', id)
+    .single();
+  return data || null;
+}
+
 async function updateUserStatus(status, userId) {
   await supabase
     .from('users')
@@ -87,6 +96,24 @@ async function updateUserProfile(bio, avatar_url, userId) {
     .from('users')
     .update({ bio, avatar_url, updated_at: new Date().toISOString() })
     .eq('id', userId);
+}
+
+async function updateUserPassword(userId, password) {
+  await supabase
+    .from('users')
+    .update({ password, updated_at: new Date().toISOString() })
+    .eq('id', userId);
+}
+
+async function findUserByExactUsername(username, excludeId) {
+  const { data } = await supabase
+    .from('users')
+    .select('id, username, avatar_url, status, bio')
+    .neq('id', excludeId)
+    .ilike('username', username)
+    .maybeSingle();
+
+  return data || null;
 }
 
 async function searchUsers(query, excludeId) {
@@ -275,8 +302,11 @@ module.exports = {
   findUserById,
   findUserWithPassword,
   findUserWithPasswordByEmail,
+  findUserWithPasswordById,
   updateUserStatus,
   updateUserProfile,
+  updateUserPassword,
+  findUserByExactUsername,
   searchUsers,
   getAllUsersExcept,
   insertMessage,

@@ -116,6 +116,35 @@ const Auth = (() => {
     return data;
   }
 
+  async function changePassword(currentPassword, newPassword) {
+    return apiCall('/api/auth/change-password', {
+      method: 'PUT',
+      body: JSON.stringify({ currentPassword, newPassword })
+    });
+  }
+
+  async function uploadProfilePhoto(file) {
+    const token = getToken();
+    const formData = new FormData();
+    formData.append('avatar', file);
+
+    const res = await fetch('/api/auth/profile/photo', {
+      method: 'POST',
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` })
+      },
+      body: formData
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to upload profile photo');
+    }
+
+    setUser(data.user);
+    return data;
+  }
+
   return {
     apiCall,
     getToken,
@@ -124,6 +153,8 @@ const Auth = (() => {
     login,
     logout,
     checkAuth,
-    updateProfile
+    updateProfile,
+    changePassword,
+    uploadProfilePhoto
   };
 })();

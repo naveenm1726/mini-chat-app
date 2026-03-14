@@ -78,6 +78,22 @@
     $('#sidebar-username').textContent = user.username;
     $('#sidebar-avatar-letter').textContent = user.username[0];
 
+    const profileAvatarLetter = $('#profile-avatar-letter');
+    const profileAvatarImage = $('#profile-avatar-image');
+    if (profileAvatarLetter) {
+      profileAvatarLetter.textContent = user.username[0];
+    }
+    if (profileAvatarImage) {
+      if (user.avatar_url) {
+        profileAvatarImage.src = user.avatar_url;
+        profileAvatarImage.classList.remove('hidden');
+        profileAvatarLetter.classList.add('hidden');
+      } else {
+        profileAvatarImage.classList.add('hidden');
+        profileAvatarLetter.classList.remove('hidden');
+      }
+    }
+
     // Connect socket
     Chat.connect();
   }
@@ -248,6 +264,15 @@
     if (user) {
       $('#profile-avatar-letter').textContent = user.username[0];
       $('#profile-bio').value = user.bio || '';
+      const avatarImage = $('#profile-avatar-image');
+      if (user.avatar_url) {
+        avatarImage.src = user.avatar_url;
+        avatarImage.classList.remove('hidden');
+        $('#profile-avatar-letter').classList.add('hidden');
+      } else {
+        avatarImage.classList.add('hidden');
+        $('#profile-avatar-letter').classList.remove('hidden');
+      }
     }
     $('#profile-modal').classList.remove('hidden');
   });
@@ -260,12 +285,44 @@
     $('#profile-modal').classList.add('hidden');
   });
 
+  const callModalBackdrop = document.querySelector('#voice-call-modal .modal-backdrop');
+  if (callModalBackdrop) {
+    callModalBackdrop.addEventListener('click', () => {
+      Chat.endVoiceCall();
+    });
+  }
+
   $('#save-profile-btn').addEventListener('click', async () => {
     try {
       const bio = $('#profile-bio').value;
+      const photoInput = $('#profile-photo-input');
+      const currentPassword = $('#current-password').value;
+      const newPassword = $('#new-password').value;
+      const confirmPassword = $('#confirm-password').value;
+
+      if (photoInput.files[0]) {
+        await Auth.uploadProfilePhoto(photoInput.files[0]);
+      }
+
       await Auth.updateProfile(bio, '');
+
+      if (currentPassword || newPassword || confirmPassword) {
+        if (!currentPassword || !newPassword || !confirmPassword) {
+          throw new Error('Fill current/new/confirm password fields to change password');
+        }
+        if (newPassword !== confirmPassword) {
+          throw new Error('New password and confirmation do not match');
+        }
+        await Auth.changePassword(currentPassword, newPassword);
+      }
+
       showToast('Profile updated!', 'success');
       $('#profile-modal').classList.add('hidden');
+      $('#current-password').value = '';
+      $('#new-password').value = '';
+      $('#confirm-password').value = '';
+      $('#profile-photo-input').value = '';
+      initChatUI();
     } catch (err) {
       showToast(err.message, 'error');
     }
@@ -275,7 +332,14 @@
   $('#new-chat-btn').addEventListener('click', () => {
     $('#conversations-list').classList.add('hidden');
     $('#users-list-panel').classList.remove('hidden');
-    Chat.loadAllUsers();
+    const resultContainer = $('#username-search-result');
+    resultContainer.innerHTML = `
+      <div style="text-align:center; padding:40px 20px; color:var(--text-tertiary);">
+        <p style="font-size:0.88rem;">Search by exact username to start chat</p>
+      </div>
+    `;
+    $('#exact-username-input').value = '';
+    $('#exact-username-input').focus();
   });
 
   $('#back-to-convos').addEventListener('click', () => {
@@ -305,54 +369,61 @@
     });
   }
 
-  // -------------------- Search Users --------------------
-  let searchDebounce = null;
+  // -------------------- Search Conversations --------------------
   $('#search-users').addEventListener('input', (e) => {
-    clearTimeout(searchDebounce);
-    const query = e.target.value.trim();
+    const query = e.target.value.trim().toLowerCase();
+    document.querySelectorAll('#conversation-items .conversation-item').forEach(item => {
+      const username = (item.dataset.username || '').toLowerCase();
+      const visible = !query || username.includes(query);
+      item.style.display = visible ? '' : 'none';
+    });
+  });
 
-    if (!query) {
-      // Show conversations again
-      $('#users-list-panel').classList.add('hidden');
-      $('#conversations-list').classList.remove('hidden');
+  // -------------------- Exact Username Search --------------------
+  let exactSearchDebounce = null;
+  $('#exact-username-input').addEventListener('input', (e) => {
+    clearTimeout(exactSearchDebounce);
+    const username = e.target.value.trim();
+    const resultContainer = $('#username-search-result');
+
+    if (!username) {
+      resultContainer.innerHTML = `
+        <div style="text-align:center; padding:40px 20px; color:var(--text-tertiary);">
+          <p style="font-size:0.88rem;">Search by exact username to start chat</p>
+        </div>
+      `;
       return;
     }
 
-    searchDebounce = setTimeout(async () => {
-      // Show users panel with search results
-      $('#conversations-list').classList.add('hidden');
-      $('#users-list-panel').classList.remove('hidden');
-
-      const users = await Chat.searchUsers(query);
-      const container = document.getElementById('all-users-items');
-
-      if (users.length === 0) {
-        container.innerHTML = `
+    exactSearchDebounce = setTimeout(async () => {
+      const user = await Chat.findUserByExactUsername(username);
+      if (!user) {
+        resultContainer.innerHTML = `
           <div style="text-align:center; padding:40px 20px; color:var(--text-tertiary);">
-            <p style="font-size:0.88rem;">No users found for "${query}"</p>
+            <p style="font-size:0.88rem;">No exact username found</p>
           </div>
         `;
         return;
       }
 
-      container.innerHTML = users.map(u => `
-        <div class="conversation-item" data-user-id="${u.id}" data-username="${u.username}">
+      resultContainer.innerHTML = `
+        <div class="conversation-item" id="exact-user-result" data-user-id="${user.id}" data-username="${user.username}">
           <div class="avatar avatar-md">
-            <span class="avatar-letter">${u.username[0]}</span>
+            <span class="avatar-letter">${user.username[0]}</span>
+            <span class="avatar-status ${Chat.isOnline(user.id) ? 'online' : ''}"></span>
           </div>
           <div class="convo-info">
-            <div class="convo-name"><span>${u.username}</span></div>
+            <div class="convo-name"><span>${user.username}</span></div>
+            <div class="convo-preview"><span>${user.bio || 'No bio'}</span></div>
           </div>
         </div>
-      `).join('');
+      `;
 
-      container.querySelectorAll('.conversation-item').forEach(item => {
-        item.addEventListener('click', () => {
-          Chat.openChat(parseInt(item.dataset.userId), item.dataset.username);
-          $('#users-list-panel').classList.add('hidden');
-          $('#conversations-list').classList.remove('hidden');
-          $('#search-users').value = '';
-        });
+      const card = $('#exact-user-result');
+      card.addEventListener('click', () => {
+        Chat.openChat(user.id, user.username);
+        $('#users-list-panel').classList.add('hidden');
+        $('#conversations-list').classList.remove('hidden');
       });
     }, 300);
   });
@@ -391,6 +462,38 @@
       sendBtn.disabled = true;
     }
   });
+
+  // -------------------- Media Upload --------------------
+  $('#attach-btn').addEventListener('click', () => {
+    $('#media-input').click();
+  });
+
+  $('#media-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      await Chat.uploadAndSendAttachment(file);
+      showToast('Media sent', 'success');
+    } catch (err) {
+      showToast(err.message || 'Failed to upload media', 'error');
+    } finally {
+      e.target.value = '';
+    }
+  });
+
+  // -------------------- Voice Calls --------------------
+  $('#voice-call-btn').addEventListener('click', async () => {
+    try {
+      await Chat.startVoiceCall();
+    } catch (err) {
+      showToast(err.message || 'Failed to start call', 'error');
+    }
+  });
+
+  $('#call-accept-btn').addEventListener('click', () => Chat.acceptIncomingCall());
+  $('#call-decline-btn').addEventListener('click', () => Chat.declineIncomingCall());
+  $('#call-end-btn').addEventListener('click', () => Chat.endVoiceCall());
 
   // -------------------- Mobile Back Button --------------------
   $('#mobile-back-btn').addEventListener('click', () => {

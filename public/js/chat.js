@@ -3,6 +3,8 @@
 // ============================================================
 
 const Chat = (() => {
+  const ATTACHMENT_PREFIX = '__ATTACHMENT__';
+
   let socket = null;
   let currentChatUserId = null;
   let currentMessages = [];
@@ -11,6 +13,11 @@ const Chat = (() => {
   let typingTimeout = null;
   let isTyping = false;
   let messageActionsBound = false;
+
+  let peerConnection = null;
+  let localStream = null;
+  let currentCallPeerId = null;
+  let pendingIncomingCall = null;
 
   // -------------------- Connect Socket --------------------
   function connect() {
@@ -117,6 +124,36 @@ const Chat = (() => {
       }
     });
 
+    socket.on('incoming_call', async (data) => {
+      pendingIncomingCall = data;
+      showCallModal('Incoming voice call', `${data.callerName} is calling...`, true);
+    });
+
+    socket.on('call_answered', async (data) => {
+      if (!peerConnection) return;
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+      showCallModal('Voice call', 'Connected', false, true);
+    });
+
+    socket.on('call_rejected', () => {
+      showToast('Call rejected', 'info');
+      cleanupCall();
+    });
+
+    socket.on('ice_candidate', async (data) => {
+      if (!peerConnection || !data.candidate) return;
+      try {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+      } catch (e) {
+        console.error('ICE add error:', e);
+      }
+    });
+
+    socket.on('call_ended', () => {
+      showToast('Call ended', 'info');
+      cleanupCall();
+    });
+
     bindMessageActions();
   }
 
@@ -164,7 +201,7 @@ const Chat = (() => {
             <span class="convo-time">${formatTime(c.last_message_time)}</span>
           </div>
           <div class="convo-preview">
-            <span>${escapeHtml(truncate(c.last_message, 40))}</span>
+            <span>${escapeHtml(truncate(conversationPreview(c.last_message), 40))}</span>
             ${c.unread_count > 0 ? `<span class="unread-badge">${c.unread_count}</span>` : ''}
           </div>
         </div>
@@ -179,6 +216,16 @@ const Chat = (() => {
         openChat(userId, username);
       });
     });
+  }
+
+  function conversationPreview(text) {
+    const payload = parseMessagePayload(text);
+    if (payload.kind === 'text') return payload.text;
+    const kind = payload.attachment?.kind || 'file';
+    if (kind === 'image') return '[Image]';
+    if (kind === 'video') return '[Video]';
+    if (kind === 'audio') return '[Audio]';
+    return '[File]';
   }
 
   // -------------------- Load All Users --------------------
@@ -238,6 +285,15 @@ const Chat = (() => {
       return data.users;
     } catch (err) {
       return [];
+    }
+  }
+
+  async function findUserByExactUsername(username) {
+    try {
+      const data = await Auth.apiCall(`/api/users/username/${encodeURIComponent(username)}`);
+      return data.user || null;
+    } catch (err) {
+      return null;
     }
   }
 
@@ -316,12 +372,14 @@ const Chat = (() => {
   function createMessageHTML(msg, type) {
     const editedLabel = msg.edited ? ' • edited' : '';
     const statusText = type === 'sent' ? (msg.read ? '✓✓ Read' : '✓ Sent') : '';
+    const payload = parseMessagePayload(msg.text);
+    const bubbleContent = renderMessageContent(payload);
 
     return `
       <div class="message-row ${type}" data-message-id="${msg.id}" data-sender-id="${msg.sender_id}" data-receiver-id="${msg.receiver_id}">
         <div>
           <div class="message-bubble-wrap">
-            <div class="message-bubble" data-raw-text="${escapeHtml(msg.text)}">${escapeHtml(msg.text)}</div>
+            <div class="message-bubble" data-raw-text="${escapeHtml(msg.text)}">${bubbleContent}</div>
             ${type === 'sent' ? `
               <div class="message-actions">
                 <button class="message-action-btn" data-action="edit" title="Edit message">✏️</button>
@@ -340,13 +398,51 @@ const Chat = (() => {
     applyMessageSearch(activeMessageSearch);
   }
 
+  function parseMessagePayload(text) {
+    if (!text) return { kind: 'text', text: '' };
+    if (!text.startsWith(ATTACHMENT_PREFIX)) return { kind: 'text', text };
+
+    try {
+      const json = text.slice(ATTACHMENT_PREFIX.length);
+      const attachment = JSON.parse(json);
+      return { kind: 'attachment', attachment };
+    } catch {
+      return { kind: 'text', text };
+    }
+  }
+
+  function renderMessageContent(payload) {
+    if (payload.kind === 'text') {
+      return escapeHtml(payload.text);
+    }
+
+    const file = payload.attachment || {};
+    const safeName = escapeHtml(file.name || 'file');
+    const safeUrl = escapeHtml(file.url || '#');
+
+    if (file.kind === 'image') {
+      return `<a href="${safeUrl}" target="_blank" rel="noopener"><img class="message-media" src="${safeUrl}" alt="${safeName}" /></a><div>${safeName}</div>`;
+    }
+
+    if (file.kind === 'video') {
+      return `<video class="message-media" controls src="${safeUrl}"></video><div>${safeName}</div>`;
+    }
+
+    if (file.kind === 'audio') {
+      return `<audio class="message-media" controls src="${safeUrl}"></audio><div>${safeName}</div>`;
+    }
+
+    return `<a class="message-file-link" href="${safeUrl}" target="_blank" rel="noopener">📎 ${safeName}</a>`;
+  }
+
   // -------------------- Send Message --------------------
-  function sendMessage(text) {
-    if (!socket || !currentChatUserId || !text.trim()) return;
+  function sendMessage(text, options = {}) {
+    const value = options.raw ? text : text.trim();
+    if (!socket || !currentChatUserId || !value) return;
 
     socket.emit('send_message', {
       receiverId: currentChatUserId,
-      text: text.trim()
+      text: value
     });
 
     // Stop typing
@@ -354,6 +450,29 @@ const Chat = (() => {
       socket.emit('stop_typing', { receiverId: currentChatUserId });
       isTyping = false;
     }
+  }
+
+  async function uploadAndSendAttachment(file) {
+    if (!currentChatUserId) throw new Error('Open a chat first');
+
+    const token = Auth.getToken();
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('receiverId', currentChatUserId);
+
+    const res = await fetch('/api/messages/upload', {
+      method: 'POST',
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` })
+      },
+      body: formData
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Upload failed');
+
+    const payloadText = `${ATTACHMENT_PREFIX}${JSON.stringify(data.attachment)}`;
+    sendMessage(payloadText, { raw: true });
   }
 
   // -------------------- Typing --------------------
@@ -485,9 +604,14 @@ const Chat = (() => {
       return;
     }
 
-    const filtered = currentMessages.filter(m =>
-      m.text && m.text.toLowerCase().includes(normalizedQuery)
-    );
+    const filtered = currentMessages.filter(m => {
+      const payload = parseMessagePayload(m.text);
+      const haystack = payload.kind === 'text'
+        ? payload.text
+        : `${payload.attachment?.name || ''} ${payload.attachment?.kind || ''}`;
+
+      return haystack.toLowerCase().includes(normalizedQuery);
+    });
 
     renderMessages(filtered);
   }
@@ -589,6 +713,118 @@ const Chat = (() => {
     } catch (e) { /* ignore */ }
   }
 
+  function showCallModal(title, status, showIncomingActions = false, showEnd = false) {
+    const modal = document.getElementById('voice-call-modal');
+    document.getElementById('call-modal-title').textContent = title;
+    document.getElementById('call-modal-status').textContent = status;
+
+    document.getElementById('call-accept-btn').classList.toggle('hidden', !showIncomingActions);
+    document.getElementById('call-decline-btn').classList.toggle('hidden', !showIncomingActions && !showEnd);
+    document.getElementById('call-end-btn').classList.toggle('hidden', !showEnd);
+
+    modal.classList.remove('hidden');
+  }
+
+  function hideCallModal() {
+    document.getElementById('voice-call-modal').classList.add('hidden');
+  }
+
+  async function createPeer(targetUserId) {
+    currentCallPeerId = targetUserId;
+    peerConnection = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+
+    peerConnection.onicecandidate = (event) => {
+      if (!event.candidate || !socket || !currentCallPeerId) return;
+      socket.emit('ice_candidate', {
+        receiverId: currentCallPeerId,
+        candidate: event.candidate
+      });
+    };
+
+    if (!localStream) {
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    }
+
+    localStream.getTracks().forEach(track => {
+      peerConnection.addTrack(track, localStream);
+    });
+
+    peerConnection.ontrack = (event) => {
+      const audio = document.getElementById('remote-audio') || document.createElement('audio');
+      audio.id = 'remote-audio';
+      audio.autoplay = true;
+      audio.srcObject = event.streams[0];
+      document.body.appendChild(audio);
+    };
+  }
+
+  async function startVoiceCall() {
+    if (!currentChatUserId) throw new Error('Open a chat first');
+    if (!socket) throw new Error('Not connected');
+
+    await createPeer(currentChatUserId);
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+
+    socket.emit('call_offer', {
+      receiverId: currentChatUserId,
+      offer
+    });
+
+    showCallModal('Voice call', 'Calling...', false, true);
+  }
+
+  async function acceptIncomingCall() {
+    if (!pendingIncomingCall || !socket) return;
+
+    await createPeer(pendingIncomingCall.callerId);
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(pendingIncomingCall.offer));
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+
+    socket.emit('call_answer', {
+      receiverId: pendingIncomingCall.callerId,
+      answer
+    });
+
+    showCallModal('Voice call', 'Connected', false, true);
+    pendingIncomingCall = null;
+  }
+
+  function declineIncomingCall() {
+    if (!pendingIncomingCall || !socket) return;
+    socket.emit('call_reject', { receiverId: pendingIncomingCall.callerId });
+    pendingIncomingCall = null;
+    hideCallModal();
+  }
+
+  function endVoiceCall() {
+    if (socket && currentCallPeerId) {
+      socket.emit('call_end', { receiverId: currentCallPeerId });
+    }
+    cleanupCall();
+  }
+
+  function cleanupCall() {
+    try {
+      if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+      }
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+        localStream = null;
+      }
+      currentCallPeerId = null;
+      pendingIncomingCall = null;
+      hideCallModal();
+    } catch (e) {
+      console.error('Cleanup call error:', e);
+    }
+  }
+
   function getCurrentChatUserId() {
     return currentChatUserId;
   }
@@ -603,10 +839,16 @@ const Chat = (() => {
     loadConversations,
     loadAllUsers,
     searchUsers,
+    findUserByExactUsername,
     openChat,
     sendMessage,
+    uploadAndSendAttachment,
     emitTyping,
     filterCurrentMessages,
+    startVoiceCall,
+    acceptIncomingCall,
+    declineIncomingCall,
+    endVoiceCall,
     getCurrentChatUserId,
     isOnline,
     scrollToBottom

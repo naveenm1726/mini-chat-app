@@ -4,12 +4,18 @@
 
 const express = require('express');
 const xss = require('xss');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const router = express.Router();
+
+const ATTACHMENT_PREFIX = '__ATTACHMENT__';
 
 const { authenticate } = require('../middleware/auth');
 const {
   getAllUsersExcept,
   searchUsers,
+  findUserByExactUsername,
   getConversation,
   getRecentConversations,
   insertMessage,
@@ -19,6 +25,24 @@ const {
   getUnreadCount,
   findUserById
 } = require('../database');
+
+const CHAT_UPLOAD_DIR = path.join(__dirname, '..', 'public', 'uploads', 'chat');
+if (!fs.existsSync(CHAT_UPLOAD_DIR)) {
+  fs.mkdirSync(CHAT_UPLOAD_DIR, { recursive: true });
+}
+
+const chatStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, CHAT_UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase() || '.bin';
+    cb(null, `chat-${req.user.id}-${Date.now()}${ext}`);
+  }
+});
+
+const chatUpload = multer({
+  storage: chatStorage,
+  limits: { fileSize: 50 * 1024 * 1024 }
+});
 
 // -------------------- GET ALL USERS (for new chat) --------------------
 router.get('/users', authenticate, async (req, res) => {
@@ -40,6 +64,20 @@ router.get('/users/search', authenticate, async (req, res) => {
     res.json({ users });
   } catch (err) {
     console.error('Search error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// -------------------- FIND USER BY EXACT USERNAME --------------------
+router.get('/users/username/:username', authenticate, async (req, res) => {
+  try {
+    const username = xss(req.params.username?.trim() || '');
+    if (!username) return res.status(400).json({ error: 'Username is required' });
+
+    const user = await findUserByExactUsername(username, req.user.id);
+    res.json({ user });
+  } catch (err) {
+    console.error('Find username error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -81,13 +119,14 @@ router.get('/messages/:userId', authenticate, async (req, res) => {
 router.post('/messages', authenticate, async (req, res) => {
   try {
     let { receiverId, text } = req.body;
-    text = xss(text?.trim());
+    const rawText = String(text || '').trim();
+    text = rawText.startsWith(ATTACHMENT_PREFIX) ? rawText : xss(rawText);
 
     if (!receiverId || !text) {
       return res.status(400).json({ error: 'Receiver and message text required' });
     }
-    if (text.length > 2000) {
-      return res.status(400).json({ error: 'Message too long (max 2000 chars)' });
+    if (text.length > 8000) {
+      return res.status(400).json({ error: 'Message too long (max 8000 chars)' });
     }
 
     const receiver = await findUserById(receiverId);
@@ -111,12 +150,49 @@ router.post('/messages', authenticate, async (req, res) => {
   }
 });
 
+// -------------------- UPLOAD CHAT FILE --------------------
+router.post('/messages/upload', authenticate, chatUpload.single('file'), async (req, res) => {
+  try {
+    const receiverId = parseInt(req.body.receiverId);
+    if (!receiverId || Number.isNaN(receiverId)) {
+      return res.status(400).json({ error: 'Receiver ID is required' });
+    }
+
+    const receiver = await findUserById(receiverId);
+    if (!receiver) return res.status(404).json({ error: 'Receiver not found' });
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const mime = req.file.mimetype || '';
+    let kind = 'file';
+    if (mime.startsWith('image/')) kind = 'image';
+    if (mime.startsWith('video/')) kind = 'video';
+    if (mime.startsWith('audio/')) kind = 'audio';
+
+    const attachment = {
+      kind,
+      url: `/uploads/chat/${req.file.filename}`,
+      name: req.file.originalname,
+      size: req.file.size,
+      mime
+    };
+
+    res.json({ attachment });
+  } catch (err) {
+    console.error('File upload error:', err);
+    res.status(500).json({ error: 'Failed to upload file' });
+  }
+});
+
 // -------------------- EDIT MESSAGE --------------------
 router.put('/messages/:messageId', authenticate, async (req, res) => {
   try {
     const messageId = parseInt(req.params.messageId);
     let { text } = req.body;
-    text = xss(text?.trim());
+    const rawText = String(text || '').trim();
+    text = rawText.startsWith(ATTACHMENT_PREFIX) ? rawText : xss(rawText);
 
     if (isNaN(messageId)) {
       return res.status(400).json({ error: 'Invalid message ID' });

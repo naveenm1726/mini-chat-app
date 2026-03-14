@@ -5,6 +5,9 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const xss = require('xss');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const router = express.Router();
 
 const {
@@ -13,11 +16,35 @@ const {
   findUserByEmail,
   findUserWithPassword,
   findUserWithPasswordByEmail,
+  findUserWithPasswordById,
   findUserById,
-  updateUserProfile
+  updateUserProfile,
+  updateUserPassword
 } = require('../database');
 
 const { generateToken, authenticate } = require('../middleware/auth');
+
+const AVATAR_UPLOAD_DIR = path.join(__dirname, '..', 'public', 'uploads', 'avatars');
+if (!fs.existsSync(AVATAR_UPLOAD_DIR)) {
+  fs.mkdirSync(AVATAR_UPLOAD_DIR, { recursive: true });
+}
+
+const avatarStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, AVATAR_UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
+    cb(null, `avatar-${req.user.id}-${Date.now()}${ext}`);
+  }
+});
+
+const avatarUpload = multer({
+  storage: avatarStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if ((file.mimetype || '').startsWith('image/')) return cb(null, true);
+    cb(new Error('Only image files are allowed'));
+  }
+});
 
 // -------------------- REGISTER --------------------
 router.post('/register', async (req, res) => {
@@ -146,6 +173,61 @@ router.put('/profile', authenticate, async (req, res) => {
     res.json({ message: 'Profile updated', user });
   } catch (err) {
     console.error('Profile update error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// -------------------- UPLOAD PROFILE PHOTO --------------------
+router.post('/profile/photo', authenticate, avatarUpload.single('avatar'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No profile photo uploaded' });
+    }
+
+    const user = await findUserById(req.user.id);
+    const nextBio = user?.bio || '';
+    const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+
+    await updateUserProfile(nextBio, avatarUrl, req.user.id);
+    const updatedUser = await findUserById(req.user.id);
+
+    res.json({ message: 'Profile photo updated', user: updatedUser });
+  } catch (err) {
+    console.error('Profile photo upload error:', err);
+    res.status(500).json({ error: 'Failed to upload profile photo' });
+  }
+});
+
+// -------------------- CHANGE PASSWORD --------------------
+router.put('/change-password', authenticate, async (req, res) => {
+  try {
+    let { currentPassword, newPassword } = req.body;
+    currentPassword = String(currentPassword || '');
+    newPassword = String(newPassword || '');
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current and new password are required' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+
+    const user = await findUserWithPasswordById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const valid = await bcrypt.compare(currentPassword, user.password);
+    if (!valid) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 12);
+    await updateUserPassword(req.user.id, hashed);
+
+    res.json({ message: 'Password changed successfully' });
+  } catch (err) {
+    console.error('Change password error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
