@@ -22,7 +22,7 @@
 
   // -------------------- Theme --------------------
   function initTheme() {
-    const saved = localStorage.getItem('mini_chat_theme') || 'light';
+    const saved = localStorage.getItem('chat_app_theme') || localStorage.getItem('mini_chat_theme') || 'light';
     document.documentElement.setAttribute('data-theme', saved);
   }
 
@@ -30,7 +30,7 @@
     const current = document.documentElement.getAttribute('data-theme');
     const next = current === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
-    localStorage.setItem('mini_chat_theme', next);
+    localStorage.setItem('chat_app_theme', next);
     showToast(`Switched to ${next} mode`, 'info');
   }
 
@@ -282,6 +282,28 @@
     $('#users-list-panel').classList.add('hidden');
     $('#conversations-list').classList.remove('hidden');
   });
+
+  // -------------------- Message Search --------------------
+  const messageSearchInput = $('#message-search-input');
+  const toggleMessageSearchBtn = $('#toggle-message-search');
+
+  if (toggleMessageSearchBtn && messageSearchInput) {
+    toggleMessageSearchBtn.addEventListener('click', () => {
+      const wrapper = $('#message-search-wrap');
+      wrapper.classList.toggle('hidden');
+
+      if (wrapper.classList.contains('hidden')) {
+        messageSearchInput.value = '';
+        Chat.filterCurrentMessages('');
+      } else {
+        messageSearchInput.focus();
+      }
+    });
+
+    messageSearchInput.addEventListener('input', (e) => {
+      Chat.filterCurrentMessages(e.target.value);
+    });
+  }
 
   // -------------------- Search Users --------------------
   let searchDebounce = null;

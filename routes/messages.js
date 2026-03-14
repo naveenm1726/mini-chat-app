@@ -13,6 +13,8 @@ const {
   getConversation,
   getRecentConversations,
   insertMessage,
+  updateMessageText,
+  deleteMessageById,
   markMessagesRead,
   getUnreadCount,
   findUserById
@@ -105,6 +107,55 @@ router.post('/messages', authenticate, async (req, res) => {
     });
   } catch (err) {
     console.error('Send message error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// -------------------- EDIT MESSAGE --------------------
+router.put('/messages/:messageId', authenticate, async (req, res) => {
+  try {
+    const messageId = parseInt(req.params.messageId);
+    let { text } = req.body;
+    text = xss(text?.trim());
+
+    if (isNaN(messageId)) {
+      return res.status(400).json({ error: 'Invalid message ID' });
+    }
+    if (!text) {
+      return res.status(400).json({ error: 'Message text required' });
+    }
+    if (text.length > 2000) {
+      return res.status(400).json({ error: 'Message too long (max 2000 chars)' });
+    }
+
+    const updated = await updateMessageText(messageId, req.user.id, text);
+    if (!updated) {
+      return res.status(404).json({ error: 'Message not found or not editable' });
+    }
+
+    res.json({ message: updated });
+  } catch (err) {
+    console.error('Edit message error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// -------------------- DELETE MESSAGE --------------------
+router.delete('/messages/:messageId', authenticate, async (req, res) => {
+  try {
+    const messageId = parseInt(req.params.messageId);
+    if (isNaN(messageId)) {
+      return res.status(400).json({ error: 'Invalid message ID' });
+    }
+
+    const deleted = await deleteMessageById(messageId, req.user.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Message not found or not deletable' });
+    }
+
+    res.json({ success: true, deleted });
+  } catch (err) {
+    console.error('Delete message error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });

@@ -27,28 +27,32 @@ const Auth = (() => {
   // -------------------- Token Management --------------------
   function getToken() {
     if (authToken) return authToken;
-    return localStorage.getItem('mini_chat_token');
+    return localStorage.getItem('chat_app_token') || localStorage.getItem('mini_chat_token');
   }
 
   function setToken(token) {
     authToken = token;
-    localStorage.setItem('mini_chat_token', token);
+    localStorage.setItem('chat_app_token', token);
+    localStorage.removeItem('mini_chat_token');
   }
 
   function clearToken() {
     authToken = null;
+    localStorage.removeItem('chat_app_token');
+    localStorage.removeItem('chat_app_user');
     localStorage.removeItem('mini_chat_token');
     localStorage.removeItem('mini_chat_user');
   }
 
   function setUser(user) {
     currentUser = user;
-    localStorage.setItem('mini_chat_user', JSON.stringify(user));
+    localStorage.setItem('chat_app_user', JSON.stringify(user));
+    localStorage.removeItem('mini_chat_user');
   }
 
   function getUser() {
     if (currentUser) return currentUser;
-    const stored = localStorage.getItem('mini_chat_user');
+    const stored = localStorage.getItem('chat_app_user') || localStorage.getItem('mini_chat_user');
     if (stored) {
       currentUser = JSON.parse(stored);
       return currentUser;

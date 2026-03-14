@@ -17,7 +17,13 @@ const xss        = require('xss');
 const authRoutes    = require('./routes/auth');
 const messageRoutes = require('./routes/messages');
 const { authenticateSocket } = require('./middleware/auth');
-const { updateUserStatus, insertMessage, findUserById, purgeOldMessages } = require('./database');
+const {
+  updateUserStatus,
+  insertMessage,
+  updateMessageText,
+  deleteMessageById,
+  purgeOldMessages
+} = require('./database');
 
 const app    = express();
 const server = http.createServer(app);
@@ -59,6 +65,11 @@ app.use(express.static(path.join(__dirname, 'public')));
 // -------------------- API ROUTES --------------------
 app.use('/api/auth', authRoutes);
 app.use('/api', messageRoutes);
+
+// -------------------- HEALTH CHECK --------------------
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, service: 'chat-app', timestamp: new Date().toISOString() });
+});
 
 // -------------------- SPA FALLBACK --------------------
 app.get('*', (req, res) => {
@@ -124,6 +135,62 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ---- EDIT MESSAGE ----
+  socket.on('edit_message', async (data) => {
+    try {
+      const messageId = parseInt(data.messageId);
+      const text = xss(data.text?.trim());
+
+      if (!messageId || !text || text.length > 2000) return;
+
+      const updated = await updateMessageText(messageId, userId, text);
+      if (!updated) return;
+
+      const payload = {
+        id: updated.id,
+        sender_id: updated.sender_id,
+        receiver_id: updated.receiver_id,
+        text: updated.text,
+        read: updated.read,
+        created_at: updated.created_at,
+        edited: true
+      };
+
+      socket.emit('message_edited', payload);
+      const receiverSocket = onlineUsers.get(updated.receiver_id);
+      if (receiverSocket) {
+        io.to(receiverSocket).emit('message_edited', payload);
+      }
+    } catch (err) {
+      console.error('Socket edit_message error:', err);
+    }
+  });
+
+  // ---- DELETE MESSAGE ----
+  socket.on('delete_message', async (data) => {
+    try {
+      const messageId = parseInt(data.messageId);
+      if (!messageId) return;
+
+      const deleted = await deleteMessageById(messageId, userId);
+      if (!deleted) return;
+
+      const payload = {
+        id: deleted.id,
+        sender_id: deleted.sender_id,
+        receiver_id: deleted.receiver_id
+      };
+
+      socket.emit('message_deleted', payload);
+      const receiverSocket = onlineUsers.get(deleted.receiver_id);
+      if (receiverSocket) {
+        io.to(receiverSocket).emit('message_deleted', payload);
+      }
+    } catch (err) {
+      console.error('Socket delete_message error:', err);
+    }
+  });
+
   // ---- TYPING INDICATOR ----
   socket.on('typing', (data) => {
     const receiverSocket = onlineUsers.get(parseInt(data.receiverId));
@@ -169,7 +236,7 @@ server.listen(PORT, () => {
   console.log(`
 ╔══════════════════════════════════════════════╗
 ║                                              ║
-║       🚀  Mini Chat App is LIVE!             ║
+║         🚀  Chat App is LIVE!                ║
 ║                                              ║
 ║       Open: http://localhost:${PORT}            ║
 ║                                              ║

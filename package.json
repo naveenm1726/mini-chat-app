@@ -1,7 +1,7 @@
 {
-  "name": "mini-chat-app",
+  "name": "chat-app",
   "version": "1.0.0",
-  "description": "A full-stack real-time chat application with authentication, database, and beautiful UI",
+  "description": "A full-stack real-time chat application inspired by modern messaging apps",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

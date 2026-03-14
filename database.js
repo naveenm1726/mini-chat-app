@@ -121,6 +121,32 @@ async function insertMessage(senderId, receiverId, text) {
   return { lastInsertRowid: data.id };
 }
 
+async function updateMessageText(messageId, senderId, text) {
+  const { data, error } = await supabase
+    .from('messages')
+    .update({ text })
+    .eq('id', messageId)
+    .eq('sender_id', senderId)
+    .select('*')
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
+}
+
+async function deleteMessageById(messageId, senderId) {
+  const { data, error } = await supabase
+    .from('messages')
+    .delete()
+    .eq('id', messageId)
+    .eq('sender_id', senderId)
+    .select('id, sender_id, receiver_id')
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
+}
+
 async function getConversation(userId1, userId2) {
   const { data: messages } = await supabase
     .from('messages')
@@ -256,6 +282,8 @@ module.exports = {
   insertMessage,
   getConversation,
   getRecentConversations,
+  updateMessageText,
+  deleteMessageById,
   markMessagesRead,
   getUnreadCount,
   purgeOldMessages

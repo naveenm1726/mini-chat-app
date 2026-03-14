@@ -5,9 +5,12 @@
 const Chat = (() => {
   let socket = null;
   let currentChatUserId = null;
+  let currentMessages = [];
+  let activeMessageSearch = '';
   let onlineUsersSet = new Set();
   let typingTimeout = null;
   let isTyping = false;
+  let messageActionsBound = false;
 
   // -------------------- Connect Socket --------------------
   function connect() {
@@ -86,8 +89,35 @@ const Chat = (() => {
 
     // Read receipts
     socket.on('messages_read', ({ readBy }) => {
-      // Could update UI to show blue ticks etc.
+      markVisibleMessagesRead(readBy);
     });
+
+    socket.on('message_edited', (msg) => {
+      const existing = currentMessages.find(m => m.id === msg.id);
+      if (!existing) return;
+
+      existing.text = msg.text;
+      existing.edited = true;
+      if (typeof msg.read !== 'undefined') {
+        existing.read = msg.read;
+      }
+
+      if (isMessageInActiveChat(existing)) {
+        applyMessageSearch(activeMessageSearch);
+      }
+    });
+
+    socket.on('message_deleted', (msg) => {
+      const existing = currentMessages.find(m => m.id === msg.id);
+      if (!existing) return;
+
+      currentMessages = currentMessages.filter(m => m.id !== msg.id);
+      if (isMessageInActiveChat(existing)) {
+        applyMessageSearch(activeMessageSearch);
+      }
+    });
+
+    bindMessageActions();
   }
 
   function disconnect() {
@@ -238,7 +268,9 @@ const Chat = (() => {
 
     try {
       const data = await Auth.apiCall(`/api/messages/${userId}`);
-      renderMessages(data.messages);
+      currentMessages = data.messages;
+      activeMessageSearch = '';
+      renderMessages(currentMessages);
       scrollToBottom(false);
       // Mark conversations as active
       highlightConversation(userId);
@@ -282,27 +314,30 @@ const Chat = (() => {
   }
 
   function createMessageHTML(msg, type) {
+    const editedLabel = msg.edited ? ' • edited' : '';
+    const statusText = type === 'sent' ? (msg.read ? '✓✓ Read' : '✓ Sent') : '';
+
     return `
-      <div class="message-row ${type}">
+      <div class="message-row ${type}" data-message-id="${msg.id}" data-sender-id="${msg.sender_id}" data-receiver-id="${msg.receiver_id}">
         <div>
-          <div class="message-bubble">${escapeHtml(msg.text)}</div>
-          <div class="message-time">${formatMessageTime(msg.created_at)}</div>
+          <div class="message-bubble-wrap">
+            <div class="message-bubble" data-raw-text="${escapeHtml(msg.text)}">${escapeHtml(msg.text)}</div>
+            ${type === 'sent' ? `
+              <div class="message-actions">
+                <button class="message-action-btn" data-action="edit" title="Edit message">✏️</button>
+                <button class="message-action-btn" data-action="delete" title="Delete message">🗑️</button>
+              </div>
+            ` : ''}
+          </div>
+          <div class="message-time">${formatMessageTime(msg.created_at)}${editedLabel}${statusText ? ` • <span class="message-status">${statusText}</span>` : ''}</div>
         </div>
       </div>
     `;
   }
 
   function appendMessage(msg, type) {
-    const container = document.getElementById('messages-container');
-    // Remove "start conversation" placeholder if present
-    const placeholder = container.querySelector('[style*="text-align:center"]');
-    if (placeholder && container.children.length === 1) {
-      container.innerHTML = '';
-    }
-
-    const div = document.createElement('div');
-    div.innerHTML = createMessageHTML(msg, type);
-    container.appendChild(div.firstElementChild);
+    currentMessages.push(msg);
+    applyMessageSearch(activeMessageSearch);
   }
 
   // -------------------- Send Message --------------------
@@ -383,6 +418,102 @@ const Chat = (() => {
     try {
       await Auth.apiCall(`/api/messages/read/${senderId}`, { method: 'PUT' });
     } catch (e) { /* ignore */ }
+  }
+
+  function bindMessageActions() {
+    if (messageActionsBound) return;
+
+    const container = document.getElementById('messages-container');
+    if (!container) return;
+
+    container.addEventListener('click', (e) => {
+      const actionBtn = e.target.closest('.message-action-btn');
+      if (!actionBtn) return;
+
+      const row = actionBtn.closest('.message-row');
+      if (!row) return;
+
+      const messageId = parseInt(row.dataset.messageId);
+      if (!messageId) return;
+
+      const action = actionBtn.dataset.action;
+      if (action === 'edit') {
+        startEditMessage(messageId);
+      }
+
+      if (action === 'delete') {
+        const confirmed = window.confirm('Delete this message?');
+        if (confirmed) {
+          deleteMessage(messageId);
+        }
+      }
+    });
+
+    messageActionsBound = true;
+  }
+
+  function startEditMessage(messageId) {
+    const message = currentMessages.find(m => m.id === messageId);
+    if (!message) return;
+
+    const updatedText = window.prompt('Edit your message:', message.text);
+    if (updatedText === null) return;
+
+    const trimmed = updatedText.trim();
+    if (!trimmed || trimmed === message.text) return;
+    editMessage(messageId, trimmed);
+  }
+
+  function editMessage(messageId, text) {
+    if (!socket) return;
+    socket.emit('edit_message', { messageId, text });
+  }
+
+  function deleteMessage(messageId) {
+    if (!socket) return;
+    socket.emit('delete_message', { messageId });
+  }
+
+  function filterCurrentMessages(query) {
+    activeMessageSearch = (query || '').trim().toLowerCase();
+    applyMessageSearch(activeMessageSearch);
+  }
+
+  function applyMessageSearch(normalizedQuery) {
+    if (!normalizedQuery) {
+      renderMessages(currentMessages);
+      return;
+    }
+
+    const filtered = currentMessages.filter(m =>
+      m.text && m.text.toLowerCase().includes(normalizedQuery)
+    );
+
+    renderMessages(filtered);
+  }
+
+  function markVisibleMessagesRead(readBy) {
+    let changed = false;
+    currentMessages = currentMessages.map(m => {
+      if (m.sender_id === Auth.getUser().id && m.receiver_id === readBy && !m.read) {
+        changed = true;
+        return { ...m, read: 1 };
+      }
+      return m;
+    });
+
+    if (changed && currentChatUserId === readBy) {
+      applyMessageSearch(activeMessageSearch);
+    }
+  }
+
+  function isMessageInActiveChat(msg) {
+    if (!currentChatUserId) return false;
+    const me = Auth.getUser();
+    return (
+      (msg.sender_id === me.id && msg.receiver_id === currentChatUserId) ||
+      (msg.sender_id === currentChatUserId && msg.receiver_id === me.id)
+    );
   }
 
   function scrollToBottom(smooth = true) {
@@ -475,6 +606,7 @@ const Chat = (() => {
     openChat,
     sendMessage,
     emitTyping,
+    filterCurrentMessages,
     getCurrentChatUserId,
     isOnline,
     scrollToBottom

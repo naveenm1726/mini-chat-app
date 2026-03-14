@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MiniChat — Real-Time Messaging</title>
+  <title>Chat App — Real-Time Messaging</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,7 +18,7 @@
       <div class="loader-bubble"></div>
       <div class="loader-bubble"></div>
     </div>
-    <p class="loader-text">Loading MiniChat...</p>
+    <p class="loader-text">Loading Chat App...</p>
   </div>
 
   <!-- ========== AUTH PAGES ========== -->
@@ -29,7 +29,7 @@
         <div class="auth-hero-content">
           <div class="auth-logo">
             <span class="logo-icon">💬</span>
-            <span class="logo-text">MiniChat</span>
+            <span class="logo-text">Chat App</span>
           </div>
           <h1 class="auth-hero-title">Connect. Chat. <span class="gradient-text">Instantly.</span></h1>
           <p class="auth-hero-subtitle">A modern real-time messaging experience built for speed, privacy, and simplicity.</p>
@@ -110,7 +110,7 @@
         <!-- REGISTER FORM -->
         <div id="register-form" class="auth-form hidden">
           <h2 class="auth-form-title">Create account</h2>
-          <p class="auth-form-subtitle">Join MiniChat and start messaging today</p>
+          <p class="auth-form-subtitle">Join Chat App and start messaging today</p>
 
           <div id="register-error" class="alert alert-error hidden"></div>
           <div id="register-success" class="alert alert-success hidden"></div>
@@ -179,7 +179,7 @@
         <div class="sidebar-header">
           <div class="sidebar-logo">
             <span class="logo-icon-sm">💬</span>
-            <span class="logo-text-sm">MiniChat</span>
+            <span class="logo-text-sm">Chat App</span>
           </div>
           <button class="btn-icon" id="sidebar-menu-btn" title="Menu">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -264,7 +264,7 @@
                 </defs>
               </svg>
             </div>
-            <h2>Welcome to MiniChat</h2>
+            <h2>Welcome to Chat App</h2>
             <p>Select a conversation or start a new one to begin messaging</p>
           </div>
         </div>
@@ -289,11 +289,20 @@
               </div>
             </div>
             <div class="chat-header-actions">
-              <button class="btn-icon" title="Search messages">
+              <button class="btn-icon" id="toggle-message-search" title="Search messages">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
                 </svg>
               </button>
+            </div>
+          </div>
+
+          <div class="chat-message-search hidden" id="message-search-wrap">
+            <div class="search-wrapper">
+              <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input type="text" id="message-search-input" placeholder="Search in this chat..." class="search-input" />
             </div>
           </div>
 
