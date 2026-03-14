@@ -479,6 +479,8 @@
       showToast(err.message || 'Failed to upload media', 'error');
     } finally {
       e.target.value = '';
+      // Refocus message input after file dialog closes
+      setTimeout(() => $('#message-input').focus(), 100);
     }
   });
 

@@ -117,6 +117,17 @@ img { max-width: 100%; display: block; }
 
 /* ======================== UTILITIES ======================== */
 .hidden { display: none !important; }
+
+/* File input must be truly hidden */
+#media-input {
+  display: none !important;
+  position: absolute !important;
+  width: 0 !important;
+  height: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 .gradient-text {
   background: var(--gradient);
   -webkit-background-clip: text;
