@@ -835,6 +835,14 @@ img { max-width: 100%; display: block; }
   position: relative;
 }
 
+/* Active chat layout */
+.chat-active {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-secondary);
+}
+
 /* Empty state */
 .chat-empty {
   flex: 1;
@@ -968,6 +976,12 @@ img { max-width: 100%; display: block; }
   position: relative;
   line-height: 1.5;
   font-size: 0.92rem;
+}
+
+.message-bubble a {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .message-bubble-wrap {
@@ -1311,10 +1325,13 @@ img { max-width: 100%; display: block; }
 
 .message-media {
   display: block;
-  max-width: 260px;
+  max-width: 280px;
+  width: 100%;
+  height: auto;
   border-radius: 12px;
   border: 1px solid var(--border-light);
   margin-top: 6px;
+  object-fit: cover;
 }
 
 .message-file-link {
